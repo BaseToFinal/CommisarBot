@@ -375,7 +375,7 @@ class AdminCog(commands.Cog):
 
     @app_commands.command(
         name="edit_pilot",
-        description="[Admin] Directly SET a pilot's stats (corrections/backdating) — unlike /logstats, this overwrites rather than adds.",
+        description="[Admin] Directly set exact pilot stats (corrections/backdating), unlike /logstats which adds.",
     )
     @app_commands.describe(
         user="The pilot to edit",
