@@ -54,6 +54,9 @@ CREATE INDEX IF NOT EXISTS idx_commissar_log_pilot ON commissar_log(discord_id);
 -- channel. Populated by /sync_avatar_pool; drawn from randomly (and marked
 -- used) during /enlist so real, already-uploaded portraits get reused
 -- instead of generating a new one every time.
+-- message_id despite its name holds a per-IMAGE unique key (e.g.
+-- "att-<attachment_id>" or "embed-<message_id>-<index>"), not the raw
+-- Discord message ID, since a single message can contain multiple images.
 CREATE TABLE IF NOT EXISTS avatar_pool (
     id            SERIAL PRIMARY KEY,
     message_id    VARCHAR NOT NULL UNIQUE,

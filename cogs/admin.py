@@ -241,11 +241,32 @@ class AdminCog(commands.Cog):
         scanned = 0
         async for message in channel.history(limit=None):
             scanned += 1
-            for attachment in message.attachments:
-                if attachment.filename.lower().endswith(image_exts):
-                    entries.append((str(message.id), attachment.url))
 
-        inserted_attempted = await db.upsert_avatar_pool_entries(entries)
+            # Real uploaded file attachments — keyed by the attachment's own
+            # unique ID, NOT message.id, since a single message can hold up
+            # to 10 images and message.id would collide across all of them.
+            for attachment in message.attachments:
+                is_image = (
+                    (attachment.content_type or "").startswith("image/")
+                    or attachment.filename.lower().endswith(image_exts)
+                )
+                if is_image:
+                    entries.append((f"att-{attachment.id}", attachment.url))
+
+            # Pasted image URLs that Discord auto-unfurled into an embed
+            # (e.g. a link to an externally-hosted image, rather than a
+            # direct file upload) — keyed by message+index since embeds
+            # don't carry their own persistent ID.
+            for i, embed in enumerate(message.embeds):
+                url = None
+                if embed.image and embed.image.url:
+                    url = embed.image.url
+                elif embed.thumbnail and embed.thumbnail.url:
+                    url = embed.thumbnail.url
+                if url and url.split("?")[0].lower().endswith(image_exts):
+                    entries.append((f"embed-{message.id}-{i}", url))
+
+        await db.upsert_avatar_pool_entries(entries)
         stats = await db.get_avatar_pool_stats()
 
         embed = discord.Embed(

@@ -72,6 +72,21 @@ class VVSBot(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
             logger.info("Synced %d commands to guild %s (dev mode).", len(synced), Config.GUILD_ID)
+
+            # If GUILD_ID was added after commands were previously synced
+            # globally (or vice versa), Discord keeps both registrations
+            # around independently, which shows up as duplicate entries in
+            # the slash command picker. Clearing + syncing an empty global
+            # command set here tells Discord to remove any stale global
+            # registration, so only the guild-scoped copy remains visible.
+            # This runs on every boot while GUILD_ID is set; it's a no-op
+            # once the global set is already empty.
+            self.tree.clear_commands(guild=None)
+            global_synced = await self.tree.sync()
+            logger.info(
+                "Cleared global command registration (guild-scoped dev mode active); %d remain globally.",
+                len(global_synced),
+            )
         else:
             synced = await self.tree.sync()
             logger.info("Synced %d global commands.", len(synced))
