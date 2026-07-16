@@ -34,6 +34,13 @@ logger = logging.getLogger("vvs.main")
 
 INTENTS = discord.Intents.default()
 INTENTS.members = True  # required for nickname edits / role management
+INTENTS.message_content = True  # required to read attachments/embeds on messages
+                                  # the bot didn't author itself (e.g. scanning
+                                  # #pilot_photo_pool via /sync_avatar_pool) —
+                                  # without this, Discord returns those fields
+                                  # empty even though channel.history() still
+                                  # succeeds. Also requires enabling "Message
+                                  # Content Intent" in the Developer Portal.
 
 COGS = [
     "cogs.enlistment",

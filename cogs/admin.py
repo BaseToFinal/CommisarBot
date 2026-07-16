@@ -239,8 +239,13 @@ class AdminCog(commands.Cog):
         image_exts = (".png", ".jpg", ".jpeg", ".webp", ".gif")
         entries = []
         scanned = 0
+        raw_attachment_count = 0
+        raw_embed_count = 0
+        sample_debug = []
         async for message in channel.history(limit=None):
             scanned += 1
+            raw_attachment_count += len(message.attachments)
+            raw_embed_count += len(message.embeds)
 
             # Real uploaded file attachments — keyed by the attachment's own
             # unique ID, NOT message.id, since a single message can hold up
@@ -252,6 +257,10 @@ class AdminCog(commands.Cog):
                 )
                 if is_image:
                     entries.append((f"att-{attachment.id}", attachment.url))
+                elif len(sample_debug) < 3:
+                    sample_debug.append(
+                        f"filename={attachment.filename!r} content_type={attachment.content_type!r}"
+                    )
 
             # Pasted image URLs that Discord auto-unfurled into an embed
             # (e.g. a link to an externally-hosted image, rather than a
@@ -265,6 +274,10 @@ class AdminCog(commands.Cog):
                     url = embed.thumbnail.url
                 if url and url.split("?")[0].lower().endswith(image_exts):
                     entries.append((f"embed-{message.id}-{i}", url))
+                elif url and len(sample_debug) < 3:
+                    sample_debug.append(f"embed_url={url!r} (extension not recognized)")
+                elif embed.type and len(sample_debug) < 3:
+                    sample_debug.append(f"embed_type={embed.type!r} no image/thumbnail url")
 
         await db.upsert_avatar_pool_entries(entries)
         stats = await db.get_avatar_pool_stats()
@@ -277,6 +290,11 @@ class AdminCog(commands.Cog):
         embed.add_field(name="Images Found This Scan", value=str(len(entries)), inline=True)
         embed.add_field(name="Total In Pool", value=str(stats["total"]), inline=True)
         embed.add_field(name="Available (Unused)", value=str(stats["unused"]), inline=True)
+        embed.add_field(name="Raw Attachments Seen", value=str(raw_attachment_count), inline=True)
+        embed.add_field(name="Raw Embeds Seen", value=str(raw_embed_count), inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        if sample_debug:
+            embed.add_field(name="Debug: unmatched samples", value="\n".join(sample_debug), inline=False)
         embed.set_footer(text="Duplicate images (already-synced messages) are skipped automatically.")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -488,6 +506,46 @@ class AdminCog(commands.Cog):
         )
         embed.add_field(name="Changes", value="\n".join(changes), inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="set_pilot_photo",
+        description="[Admin] Manually set a specific pilot's portrait (fallback for pool/AI generation).",
+    )
+    @app_commands.describe(user="The pilot whose portrait to set", image="The portrait image to use")
+    async def set_pilot_photo(self, interaction: discord.Interaction, user: discord.Member, image: discord.Attachment):
+        if not has_commissar_perms(interaction.user):
+            await interaction.response.send_message(
+                "Only Admins/Commissars may use this command.", ephemeral=True
+            )
+            return
+
+        record = await db.get_pilot(user.id)
+        if record is None or record["status"] == "KIA":
+            await interaction.response.send_message(
+                "That pilot does not have an active service record.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        stored_url = await store_attachment(self.bot, image, f"portrait_{user.id}")
+        if stored_url is None:
+            await interaction.followup.send(
+                "Failed to store the image. Check that AVATAR_STORAGE_CHANNEL_ID is configured "
+                "and the bot can post there.",
+                ephemeral=True,
+            )
+            return
+
+        await db.update_pilot_fields(user.id, avatar_url=stored_url)
+
+        embed = discord.Embed(
+            title="Portrait Updated",
+            description=f'{user.mention}\'s portrait has been set manually.',
+            color=discord.Color.blue(),
+        )
+        embed.set_thumbnail(url=stored_url)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
