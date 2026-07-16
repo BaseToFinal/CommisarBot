@@ -5,6 +5,7 @@ Shared helpers: nickname formatting, embed builders, and avatar generation.
 import io
 import json
 import logging
+from typing import Optional
 
 import discord
 
@@ -95,6 +96,44 @@ async def _store_bytes_to_discord(bot: discord.Client, image_bytes: bytes, filen
     return None
 
 
+async def assign_pilot_avatar(pilot_name: str, discord_id: str, bot: discord.Client = None) -> str:
+    """
+    Assigns a portrait to a newly enlisted pilot, in priority order:
+      1. A random unused image from the avatar pool (pre-generated images
+         synced from a designated channel via /sync_avatar_pool).
+      2. A freshly generated DALL-E image (if IMAGE_GEN_API_KEY is set).
+      3. A deterministic placeholder image.
+    """
+    import db
+
+    try:
+        pool_entry = await db.get_random_unused_avatar()
+    except Exception:
+        logger.exception("Failed to query avatar pool; falling back.")
+        pool_entry = None
+
+    if pool_entry is not None:
+        await db.mark_avatar_used(pool_entry["id"], discord_id)
+        return pool_entry["attachment_url"]
+
+    return await generate_avatar(pilot_name, bot)
+
+
+async def store_attachment(bot: discord.Client, attachment: discord.Attachment, filename: str) -> Optional[str]:
+    """
+    Downloads an uploaded slash-command attachment and re-posts it to the
+    avatar/asset storage channel to get a durable, permanent CDN URL — the
+    same pattern used for generated pilot portraits. Used for medal and
+    rank icons uploaded via /set_medal_image and /set_rank_image.
+    """
+    try:
+        image_bytes = await attachment.read()
+    except discord.HTTPException:
+        logger.exception("Failed to read uploaded attachment.")
+        return None
+    return await _store_bytes_to_discord(bot, image_bytes, filename)
+
+
 async def generate_avatar(pilot_name: str, bot: discord.Client = None) -> str:
     """
     Generates a unique black-and-white 1984-style Soviet pilot portrait for
@@ -142,8 +181,99 @@ async def generate_avatar(pilot_name: str, bot: discord.Client = None) -> str:
     return await _fetch_placeholder(pilot_name)
 
 
-def build_dossier_embed(record, member: discord.Member) -> discord.Embed:
-    """'Личное дело' (Dossier) embed for the View Service Record context menu."""
+async def build_rank_structure_embeds() -> list:
+    """
+    Reference chart of the full rank hierarchy, junior to senior, with
+    cumulative flight-hour thresholds shown so pilots can see how far they
+    are from their next promotion. Registered rank icons (if any) are shown
+    as a small gallery of extra embeds, same pattern as the medal gallery.
+    """
+    import db
+    from data import RANK_PROGRESSION, RANK_SHORTFORM, PROMOTION_HOUR_THRESHOLDS
+
+    lines = []
+    for i, rank in enumerate(RANK_PROGRESSION, start=1):
+        shortform = RANK_SHORTFORM.get(rank, "")
+        threshold = PROMOTION_HOUR_THRESHOLDS.get(rank)
+        if threshold is not None:
+            lines.append(f"**{i}. {rank}** ({shortform}) — {threshold:.0f} hrs to next rank")
+        else:
+            lines.append(f"**{i}. {rank}** ({shortform}) — top of the hierarchy")
+
+    embed = discord.Embed(
+        title="VVS Rank Structure",
+        description="\n".join(lines),
+        color=discord.Color.dark_red(),
+    )
+    embed.set_footer(text="Promotions are awarded by Commissar/Admin discretion via /promote.")
+
+    embeds = [embed]
+    max_icon_embeds = 9
+    shown = 0
+    for rank in RANK_PROGRESSION:
+        if shown >= max_icon_embeds:
+            break
+        icon = await db.get_rank_image(rank)
+        if icon is None:
+            continue
+        icon_embed = discord.Embed(title=rank, color=discord.Color.dark_red())
+        icon_embed.set_thumbnail(url=icon["image_url"])
+        embeds.append(icon_embed)
+        shown += 1
+
+    return embeds
+
+
+async def build_roster_embed(records: list, squadron_label: str) -> discord.Embed:
+    """Compact squadron/roster listing: name, callsign, rank, status."""
+    from data import RANK_PROGRESSION
+
+    status_order = {"ACTIVE": 0, "FATIGUED": 1, "LOA": 2, "KIA": 3}
+    rank_order = {r: i for i, r in enumerate(RANK_PROGRESSION)}
+
+    def sort_key(r):
+        return (
+            status_order.get(r["status"], 9),
+            -rank_order.get(r["current_rank"], 0),
+        )
+
+    sorted_records = sorted(records, key=sort_key)
+
+    lines = []
+    for r in sorted_records:
+        status_marker = {
+            "ACTIVE": "🟢",
+            "FATIGUED": "🟠",
+            "LOA": "🟡",
+            "KIA": "⚫",
+        }.get(r["status"], "⚪")
+        lines.append(
+            f'{status_marker} **{r["soviet_name"]}** "{r["callsign"]}" — {r["current_rank"]}'
+        )
+
+    embed = discord.Embed(
+        title=f"Roster — {squadron_label}",
+        description="\n".join(lines) if lines else "No pilots found.",
+        color=discord.Color.dark_teal(),
+    )
+    embed.set_footer(text="🟢 Active   🟠 Fatigued   🟡 LOA   ⚫ KIA")
+    return embed
+
+
+async def build_dossier_embeds(record, member: discord.Member) -> list:
+    """
+    Builds the 'Личное дело' (Dossier) embed set for /profile and the "View
+    Service Record" context menu. Returns a list of discord.Embed — the
+    first is the main profile card (with the rank icon shown next to the
+    pilot's name via the embed author field, if one is registered in
+    rank_catalog), followed by one small embed per earned medal that has a
+    registered icon in medal_catalog (Discord embeds only support a single
+    thumbnail each, so a multi-medal "gallery" needs one embed per icon).
+    Medals with no registered icon still show up in the text field, just
+    without an icon card.
+    """
+    import db
+
     status = record["status"]
     status_colors = {
         "ACTIVE": discord.Color.dark_green(),
@@ -151,13 +281,19 @@ def build_dossier_embed(record, member: discord.Member) -> discord.Embed:
         "FATIGUED": discord.Color.orange(),
         "KIA": discord.Color.dark_red(),
     }
+    color = status_colors.get(status, discord.Color.greyple())
+
     embed = discord.Embed(
         title=f'Личное дело — {record["soviet_name"]}',
         description=f'"{record["callsign"]}" — {record["current_rank"]}',
-        color=status_colors.get(status, discord.Color.greyple()),
+        color=color,
     )
     if record["avatar_url"]:
         embed.set_thumbnail(url=record["avatar_url"])
+
+    rank_icon = await db.get_rank_image(record["current_rank"])
+    if rank_icon:
+        embed.set_author(name=record["current_rank"], icon_url=rank_icon["image_url"])
 
     embed.add_field(name="Squadron", value=record["squadron"] or "Unassigned", inline=True)
     embed.add_field(name="Airframe", value=record["airframe"] or "Unassigned", inline=True)
@@ -199,4 +335,18 @@ def build_dossier_embed(record, member: discord.Member) -> discord.Embed:
     embed.add_field(name="Reprimands (recent)", value=text, inline=False)
 
     embed.set_footer(text=f"Discord: {member.display_name}")
-    return embed
+
+    embeds = [embed]
+
+    # Discord messages support up to 10 embeds total; reserve room for the
+    # main card and cap the medal gallery so we never exceed that.
+    max_medal_embeds = 9
+    for medal_name in medals[:max_medal_embeds]:
+        catalog_entry = await db.get_medal_image(medal_name)
+        if catalog_entry is None:
+            continue
+        medal_embed = discord.Embed(title=catalog_entry["display_name"], color=color)
+        medal_embed.set_thumbnail(url=catalog_entry["image_url"])
+        embeds.append(medal_embed)
+
+    return embeds

@@ -61,23 +61,47 @@ RANK_PROGRESSION = [
     "Senior Lieutenant",
     "Captain",
     "Major",
+    "Lieutenant Colonel",
+    "Colonel",
+    "Major General",
+    "Lieutenant General",
+    "Colonel General",
+    "General of the Army",
+    "Marshal of the Soviet Union",
 ]
 
 RANK_SHORTFORM = {
-    "Junior Lieutenant": "Jg.Lt.",
+    "Junior Lieutenant": "Jr.Lt.",
     "Lieutenant": "Lt.",
     "Senior Lieutenant": "Sr.Lt.",
     "Captain": "Capt.",
-    "Major": "Major",
+    "Major": "Maj.",
+    "Lieutenant Colonel": "Lt.Col.",
+    "Colonel": "Col.",
+    "Major General": "Maj.Gen.",
+    "Lieutenant General": "Lt.Gen.",
+    "Colonel General": "Col.Gen.",
+    "General of the Army": "Gen.Army",
+    "Marshal of the Soviet Union": "Marshal SU",
 }
 
 # Base flight-hours-to-next-rank thresholds (cumulative). Reprimands add
 # +5 hours each to the NEXT threshold only (see economy/promotion logic).
+# Marshal of the Soviet Union has no entry — it's the top of the hierarchy
+# (historically a distinguished/political appointment rather than something
+# earned purely by hours), so there's nothing beyond it to threshold against.
 PROMOTION_HOUR_THRESHOLDS = {
-    "Junior Lieutenant": 15.0,   # hours needed to be eligible for Lieutenant
-    "Lieutenant": 40.0,          # -> Senior Lieutenant
-    "Senior Lieutenant": 80.0,   # -> Captain
-    "Captain": 140.0,            # -> Major
+    "Junior Lieutenant": 15.0,            # -> Lieutenant
+    "Lieutenant": 40.0,                   # -> Senior Lieutenant
+    "Senior Lieutenant": 80.0,            # -> Captain
+    "Captain": 140.0,                     # -> Major
+    "Major": 220.0,                       # -> Lieutenant Colonel
+    "Lieutenant Colonel": 320.0,          # -> Colonel
+    "Colonel": 450.0,                     # -> Major General
+    "Major General": 600.0,               # -> Lieutenant General
+    "Lieutenant General": 800.0,          # -> Colonel General
+    "Colonel General": 1050.0,            # -> General of the Army
+    "General of the Army": 1350.0,        # -> Marshal of the Soviet Union
 }
 
 # ------------------------------------------------------------------

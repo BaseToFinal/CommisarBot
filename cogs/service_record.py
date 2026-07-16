@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
-from utils import build_dossier_embed
+from utils import build_dossier_embeds
 
 
 class ServiceRecord(commands.Cog):
@@ -35,8 +35,8 @@ class ServiceRecord(commands.Cog):
             )
             return
 
-        embed = build_dossier_embed(record, member)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        embeds = await build_dossier_embeds(record, member)
+        await interaction.response.send_message(embeds=embeds, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

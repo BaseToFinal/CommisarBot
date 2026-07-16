@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import db
 import data
-from utils import format_nickname, generate_avatar
+from utils import format_nickname, assign_pilot_avatar
 from config import Config
 
 logger = logging.getLogger("vvs.enlistment")
@@ -88,7 +88,7 @@ class Enlistment(commands.Cog):
 
         squadron = data.AIRFRAME_SQUADRONS[airframe]
         soviet_name = f"{first_name} {last_name}"
-        avatar_url = await generate_avatar(soviet_name, self.bot)
+        avatar_url = await assign_pilot_avatar(soviet_name, interaction.user.id, self.bot)
 
         record = await db.create_pilot(
             discord_id=interaction.user.id,

@@ -291,3 +291,139 @@ async def get_pilots_with_pending_loa_return():
             WHERE status = 'LOA' AND loa_end IS NOT NULL AND loa_end < NOW()::date
             """
         )
+
+
+# ------------------------------------------------------------------
+# Avatar pool
+# ------------------------------------------------------------------
+
+async def upsert_avatar_pool_entries(entries: list[tuple[str, str]]) -> int:
+    """
+    entries: list of (message_id, attachment_url) tuples.
+    Inserts new ones, ignores ones already recorded (by message_id).
+    Returns number of newly inserted rows.
+    """
+    if not entries:
+        return 0
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.executemany(
+            """
+            INSERT INTO avatar_pool (message_id, attachment_url)
+            VALUES ($1, $2)
+            ON CONFLICT (message_id) DO NOTHING
+            """,
+            entries,
+        )
+    # asyncpg's executemany doesn't give an affected-row count directly, so
+    # report against a fresh count of unused/total for the caller to display.
+    return len(entries)
+
+
+async def get_random_unused_avatar() -> Optional[asyncpg.Record]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            "SELECT * FROM avatar_pool WHERE is_used = FALSE ORDER BY random() LIMIT 1"
+        )
+
+
+async def mark_avatar_used(pool_id: int, discord_id: str):
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE avatar_pool SET is_used = TRUE, assigned_to = $2 WHERE id = $1",
+            pool_id, str(discord_id),
+        )
+
+
+async def get_avatar_pool_stats() -> dict:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM avatar_pool")
+        unused = await conn.fetchval("SELECT COUNT(*) FROM avatar_pool WHERE is_used = FALSE")
+    return {"total": total, "unused": unused, "used": total - unused}
+
+
+# ------------------------------------------------------------------
+# Medal / rank icon catalogs
+# ------------------------------------------------------------------
+
+def _normalize_medal_key(name: str) -> str:
+    return name.strip().lower()
+
+
+async def upsert_medal_image(medal_name: str, image_url: str, added_by: str) -> asyncpg.Record:
+    pool = get_pool()
+    key = _normalize_medal_key(medal_name)
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            INSERT INTO medal_catalog (medal_key, display_name, image_url, added_by)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (medal_key) DO UPDATE SET
+                image_url = EXCLUDED.image_url,
+                display_name = EXCLUDED.display_name,
+                added_by = EXCLUDED.added_by,
+                added_at = NOW()
+            RETURNING *
+            """,
+            key, medal_name.strip(), image_url, str(added_by),
+        )
+
+
+async def get_medal_image(medal_name: str) -> Optional[asyncpg.Record]:
+    pool = get_pool()
+    key = _normalize_medal_key(medal_name)
+    async with pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM medal_catalog WHERE medal_key = $1", key)
+
+
+async def list_medal_catalog() -> list:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch("SELECT * FROM medal_catalog ORDER BY display_name")
+
+
+async def upsert_rank_image(rank_name: str, image_url: str, added_by: str) -> asyncpg.Record:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            INSERT INTO rank_catalog (rank_name, image_url, added_by)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (rank_name) DO UPDATE SET
+                image_url = EXCLUDED.image_url,
+                added_by = EXCLUDED.added_by,
+                added_at = NOW()
+            RETURNING *
+            """,
+            rank_name, image_url, str(added_by),
+        )
+
+
+async def get_rank_image(rank_name: str) -> Optional[asyncpg.Record]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM rank_catalog WHERE rank_name = $1", rank_name)
+
+
+# ------------------------------------------------------------------
+# Roster queries
+# ------------------------------------------------------------------
+
+async def get_pilots_by_squadron(squadron: str) -> list:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM pilot_records WHERE squadron = $1 AND status != 'KIA' ORDER BY current_rank",
+            squadron,
+        )
+
+
+async def get_all_active_pilots() -> list:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM pilot_records WHERE status != 'KIA' ORDER BY squadron, current_rank"
+        )

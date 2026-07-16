@@ -50,6 +50,39 @@ CREATE TABLE IF NOT EXISTS commissar_log (
 
 CREATE INDEX IF NOT EXISTS idx_commissar_log_pilot ON commissar_log(discord_id);
 
+-- Pool of pre-generated pilot photos sourced from a designated Discord
+-- channel. Populated by /sync_avatar_pool; drawn from randomly (and marked
+-- used) during /enlist so real, already-uploaded portraits get reused
+-- instead of generating a new one every time.
+CREATE TABLE IF NOT EXISTS avatar_pool (
+    id            SERIAL PRIMARY KEY,
+    message_id    VARCHAR NOT NULL UNIQUE,
+    attachment_url TEXT NOT NULL,
+    is_used        BOOLEAN NOT NULL DEFAULT FALSE,
+    assigned_to    VARCHAR,             -- discord_id of the pilot it was given to
+    added_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_avatar_pool_unused ON avatar_pool(is_used) WHERE is_used = FALSE;
+
+-- Catalog of medal icons, keyed by a normalized (lowercased/trimmed) name so
+-- /award reuses the same icon every time the same medal name is given out.
+CREATE TABLE IF NOT EXISTS medal_catalog (
+    medal_key     VARCHAR PRIMARY KEY,   -- normalized: lower().strip()
+    display_name  VARCHAR NOT NULL,      -- original casing, shown in embeds
+    image_url     TEXT NOT NULL,
+    added_by      VARCHAR,
+    added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Catalog of rank icons, one row per canonical rank name.
+CREATE TABLE IF NOT EXISTS rank_catalog (
+    rank_name     VARCHAR PRIMARY KEY,
+    image_url     TEXT NOT NULL,
+    added_by      VARCHAR,
+    added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Fallen-heroes memorial archive (kept even after a fresh /enlist wipes the
 -- live pilot_records row identity, since pilot_records is reused by
 -- discord_id on re-enlistment).
