@@ -27,6 +27,22 @@ class Config:
     AVATAR_STORAGE_CHANNEL_ID = _get_int("AVATAR_STORAGE_CHANNEL_ID")
     PILOT_PHOTO_POOL_CHANNEL_ID = _get_int("PILOT_PHOTO_POOL_CHANNEL_ID")
 
+    # Channel where DCSServerBot posts its live server-status embed
+    # (map, in-mission weather, player slots, runtime, etc).
+    DCS_STATUS_CHANNEL_ID = _get_int("DCS_STATUS_CHANNEL_ID")
+
+    # Where Daily Orders gets posted, and what hour (UTC, 0-23) the
+    # scheduled auto-post fires each day.
+    DAILY_ORDERS_CHANNEL_ID = _get_int("DAILY_ORDERS_CHANNEL_ID")
+    DAILY_ORDERS_POST_HOUR_UTC = _get_int("DAILY_ORDERS_POST_HOUR_UTC", default=12)
+
+    # Real-world airport for the METAR reference weather shown in Daily
+    # Orders / /server_status. Defaults to Kabul (OAKB) to match the
+    # Soviet-Afghan War setting. Independent of the DCS server itself —
+    # this is real current weather for that real-world location, not a
+    # read of the actual in-game scripted weather.
+    METAR_ICAO_CODE = os.environ.get("METAR_ICAO_CODE", "OAKB")
+
     # Roles
     COMMISSAR_ROLE_ID = _get_int("COMMISSAR_ROLE_ID")
     ADMIN_ROLE_ID = _get_int("ADMIN_ROLE_ID")

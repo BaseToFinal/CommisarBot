@@ -334,6 +334,20 @@ async def build_dossier_embeds(record, member: discord.Member) -> list:
         text = "None"
     embed.add_field(name="Reprimands (recent)", value=text, inline=False)
 
+    if record["service_record_details"]:
+        embed.add_field(name="Service Record", value=record["service_record_details"][:1024], inline=False)
+
+    if record["backstory"] or record["birth_place"] or record["birth_date"]:
+        birth_line = ""
+        if record["birth_date"]:
+            birth_line += record["birth_date"].isoformat()
+        if record["birth_place"]:
+            birth_line += f' — {record["birth_place"]}' if birth_line else record["birth_place"]
+        bio_text = f"**Born:** {birth_line}\n" if birth_line else ""
+        bio_text += record["backstory"] or ""
+        if bio_text:
+            embed.add_field(name="Personal File", value=bio_text[:1024], inline=False)
+
     embed.set_footer(text=f"Discord: {member.display_name}")
 
     embeds = [embed]

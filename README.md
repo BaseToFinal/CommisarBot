@@ -192,6 +192,105 @@ Three ways to modify a pilot's record, depending on what you're doing:
 Every change through any of these is logged to the `commissar_log` table
 for an audit trail.
 
+## Live DCS server status & Daily Orders
+
+**Important constraint this was built around:** if your DCS server is
+managed by a third-party host that runs its own DCSServerBot in *their*
+Discord server (not yours), your bot has no way to read that data — bots
+can only see channels in servers they've been added to, and Discord's
+"Follow Channel" feature requires admin permissions on the source server
+that a renter typically won't have. This system is designed around that
+reality rather than assuming access you may not have.
+
+**How it actually works:**
+- **`/set_daily_conditions [text]`** (Admin) — the primary, always-reliable
+  path. Paste whatever server/mission/weather info you can see (e.g. from
+  your host's status page or Discord channel) and it gets staged for the
+  next Daily Orders post.
+- **Real-world reference weather** — fully automatic and independent of
+  the DCS server entirely. Pulls live METAR from NOAA's public
+  aviationweather.gov API for a real-world airport (`METAR_ICAO_CODE`,
+  defaults to Kabul/OAKB to match the Soviet-Afghan War setting). This is
+  genuinely real *current* weather for that real location — not a read of
+  your mission's actual scripted DCS weather, and the Daily Orders embed
+  labels it clearly as a reference rather than claiming otherwise.
+- **DCSServerBot channel reading** (dormant unless configured) — if
+  `DCS_STATUS_CHANNEL_ID` is set AND your bot happens to have access to
+  that channel (e.g. you self-host DCSServerBot in your own server), this
+  takes priority as an automatic source and the manual staging becomes a
+  fallback. Most third-party-hosted setups won't have this access, and
+  the system works completely fine without it.
+
+**Setup:**
+1. Set `DAILY_ORDERS_CHANNEL_ID` to where you want Daily Orders posted.
+2. Optionally set `DAILY_ORDERS_POST_HOUR_UTC` (default 12, UTC) for the
+   daily auto-post time.
+3. Optionally set `METAR_ICAO_CODE` if you want reference weather for a
+   different real-world airport (e.g. matching a different DCS map).
+4. Leave `DCS_STATUS_CHANNEL_ID` unset unless you specifically have bot
+   access to a channel where DCSServerBot posts.
+
+**Commands:**
+- **`/server_status`** — anyone, on-demand check (staged conditions +
+  real-world METAR, plus live DCSServerBot data if that access exists)
+- **`/daily_orders`** (Admin) — generate and post Daily Orders immediately
+- **`/set_daily_conditions [text]`** (Admin) — stage server/mission/weather
+  info manually
+- **`/set_mission_objective [text]`** (Admin) — stage the mission objective
+- **`/set_readiness [condition]`** (Admin) — stage readiness (Combat
+  Readiness №1/2/3, Soviet VVS style)
+- **`/assign_crew [user]`** / **`/unassign_crew [user]`** (Admin) —
+  hand-pick crew for the next Daily Orders, overriding the default full
+  active roster
+- **`/clear_crew_override`** (Admin) — revert to auto (full active roster)
+
+Daily Orders posts automatically once per day at the configured hour using
+whatever's staged (or defaults/full roster if nothing was set), then
+resets objective/conditions/readiness/crew override and increments the
+mission number for the next cycle. `/daily_orders` follows the same
+staging/reset behavior for a forced post.
+
+
+
+## Pilot backstories & service records
+
+Every enlisted pilot gets a full, procedurally generated personal file
+(similar in depth to a real Soviet личное дело) shown on `/profile`:
+
+**Service Record** (structured):
+- Nationality (correlated with birth republic, with realistic minority
+  representation — the USSR was multi-ethnic)
+- Social origin (из рабочих / из крестьян / из служащих — a real Soviet
+  bureaucratic category)
+- Party/Komsomol status
+- Marital status, with a named spouse and children where applicable
+- Military education — a real historical Soviet aviation academy, matched
+  to fixed-wing vs. helicopter airframe, with a graduation year
+- Pilot qualification class (Military Pilot 3rd/2nd/1st Class — "Sniper
+  Pilot" is deliberately excluded from auto-generation since it's a
+  veteran-only honor, not something a fresh 20-something would hold)
+- A distinguishing physical feature
+- Next of kin (mother or father, named, at the same birthplace)
+
+**Personal File** (narrative): birthplace (any of the 15 real Soviet
+republics), birthdate (skewed early-20s as of 1986), family background,
+how they joined DOSAAF/aviation, and a personal trait, combined into a
+brief unique paragraph.
+
+This was built for differentiation at scale — tested with 500 generated
+backstories (zero grammar/logic errors) and 150 simulated enlistments with
+random names (zero duplicate narratives, zero duplicate service records).
+One caveat found during testing: the *name* pool itself (300 combinations)
+will produce some duplicate first+last names past ~100 pilots, even though
+their birthdate/backstory/service record stay fully unique — let me know
+if you'd like the name pool expanded to reduce that.
+
+- **`/edit_pilot_bio [user] [birthplace] [birthdate] [backstory] [service_record]`**
+  (Admin) — manually override any of these fields. All optional; only pass
+  what you want to change. `birthdate` must be `YYYY-MM-DD`.
+- **`/regenerate_backstory [user]`** (Admin) — throw out the current bio
+  and roll a completely new random one (including service record).
+
 ## Extensibility note (DCSDiscordBot integration)
 
 `db.py` isolates all SQL behind plain async functions, and `config.py` isolates

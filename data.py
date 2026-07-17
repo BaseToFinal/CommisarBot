@@ -9,6 +9,7 @@ them as thematically authentic MILSIM flavor rather than a claim of exact
 squadron/date lineage.
 """
 
+import datetime
 import random
 
 # ------------------------------------------------------------------
@@ -185,3 +186,251 @@ INTEL_TOPICS = [
     "Convoy of unknown composition reported moving through the Kunar valley; fast-mover flight recommended for visual ID.",
     "Signals intelligence suggests a rest/regroup posture in the northern sector; expect reduced contact through 0600Z.",
 ]
+
+# ------------------------------------------------------------------
+# Daily Orders — readiness conditions (Soviet VVS combat readiness levels)
+# ------------------------------------------------------------------
+
+READINESS_CONDITIONS = [
+    "Боевая готовность №1 — Immediate Launch",
+    "Боевая готовность №2 — Standby (15 min)",
+    "Боевая готовность №3 — Rest / Maintenance",
+]
+
+DEFAULT_READINESS = READINESS_CONDITIONS[1]
+DEFAULT_MISSION_OBJECTIVE = "Awaiting orders from Group Command — objective not yet set."
+
+# ------------------------------------------------------------------
+# Pilot backstory generation
+# ------------------------------------------------------------------
+# The server is set in 1986; pilots are generated as if born in one of the
+# 15 real Soviet Socialist Republics of the era, mostly in their early
+# 20s at the time of enlistment (i.e. born early-to-mid 1960s). City names
+# are real historical Soviet-era names for the period.
+
+SOVIET_FEMALE_FIRST_NAMES = [
+    "Yelena", "Natalia", "Svetlana", "Irina", "Olga", "Tatiana", "Galina",
+    "Lyudmila", "Marina", "Nina", "Vera", "Anna", "Larisa", "Valentina", "Zoya",
+]
+
+SSR_BIRTHPLACES = {
+    "Russian SFSR": ["Moscow", "Leningrad", "Novosibirsk", "Rostov-on-Don", "Volgograd", "Sverdlovsk", "Kazan"],
+    "Ukrainian SSR": ["Kiev", "Kharkov", "Odessa", "Dnepropetrovsk", "Lvov", "Donetsk"],
+    "Byelorussian SSR": ["Minsk", "Gomel", "Vitebsk", "Mogilev"],
+    "Uzbek SSR": ["Tashkent", "Samarkand", "Bukhara"],
+    "Kazakh SSR": ["Alma-Ata", "Karaganda", "Chimkent"],
+    "Georgian SSR": ["Tbilisi", "Kutaisi", "Batumi"],
+    "Azerbaijan SSR": ["Baku", "Ganja", "Sumgait"],
+    "Lithuanian SSR": ["Vilnius", "Kaunas", "Klaipeda"],
+    "Moldavian SSR": ["Kishinev", "Tiraspol", "Beltsy"],
+    "Latvian SSR": ["Riga", "Daugavpils", "Liepaja"],
+    "Kirghiz SSR": ["Frunze", "Osh"],
+    "Tajik SSR": ["Dushanbe", "Khujand"],
+    "Armenian SSR": ["Yerevan", "Gyumri"],
+    "Turkmen SSR": ["Ashkhabad", "Chardzhou"],
+    "Estonian SSR": ["Tallinn", "Tartu"],
+}
+
+# Nationality (национальность) — a mandatory field on real Soviet internal
+# documents, distinct from citizenship. Weighted toward each republic's
+# titular nationality (listed multiple times) with realistic minority
+# possibilities mixed in, since the USSR was multi-ethnic throughout.
+REPUBLIC_NATIONALITIES = {
+    "Russian SFSR": ["Russian", "Russian", "Russian", "Tatar", "Chuvash", "Bashkir"],
+    "Ukrainian SSR": ["Ukrainian", "Ukrainian", "Ukrainian", "Russian"],
+    "Byelorussian SSR": ["Belorussian", "Belorussian", "Belorussian", "Russian"],
+    "Uzbek SSR": ["Uzbek", "Uzbek", "Uzbek", "Russian", "Tajik"],
+    "Kazakh SSR": ["Kazakh", "Kazakh", "Kazakh", "Russian"],
+    "Georgian SSR": ["Georgian", "Georgian", "Georgian", "Armenian", "Russian"],
+    "Azerbaijan SSR": ["Azerbaijani", "Azerbaijani", "Azerbaijani", "Russian", "Armenian"],
+    "Lithuanian SSR": ["Lithuanian", "Lithuanian", "Lithuanian", "Russian", "Polish"],
+    "Moldavian SSR": ["Moldavian", "Moldavian", "Moldavian", "Ukrainian", "Russian"],
+    "Latvian SSR": ["Latvian", "Latvian", "Latvian", "Russian"],
+    "Kirghiz SSR": ["Kirghiz", "Kirghiz", "Kirghiz", "Russian"],
+    "Tajik SSR": ["Tajik", "Tajik", "Tajik", "Uzbek", "Russian"],
+    "Armenian SSR": ["Armenian", "Armenian", "Armenian", "Russian"],
+    "Turkmen SSR": ["Turkmen", "Turkmen", "Turkmen", "Russian"],
+    "Estonian SSR": ["Estonian", "Estonian", "Estonian", "Russian"],
+}
+
+# Social origin (социальное происхождение) — a standard bureaucratic
+# category on Soviet personal-file questionnaires (anketa).
+SOCIAL_ORIGINS = [
+    ("из рабочих", "worker family"),
+    ("из крестьян", "peasant family"),
+    ("из служащих", "family of office employees"),
+]
+
+PARTY_STATUS_OPTIONS = [
+    "Member of the Komsomol",
+    "Candidate Member, CPSU",
+    "Non-Party",
+]
+# Most pilots this age are Komsomol members; CPSU candidacy and non-party
+# status are both realistic but less common for junior officers.
+PARTY_STATUS_WEIGHTS = [70, 15, 15]
+
+# Real historical Soviet higher military aviation schools, split by
+# fixed-wing vs. helicopter training pipelines.
+FIXED_WING_ACADEMIES = [
+    "Kachin Higher Military Aviation School of Pilots",
+    "Armavir Higher Military Aviation School of Pilots",
+    "Chernigov Higher Military Aviation School of Pilots",
+    "Barnaul Higher Military Aviation School of Pilots",
+]
+HELICOPTER_ACADEMIES = [
+    "Syzran Higher Military Aviation School of Pilots",
+]
+
+# Soviet VVS pilot qualification classes. "Sniper Pilot" (летчик-снайпер),
+# the most elite distinction, is deliberately excluded from generation —
+# it's a veteran-only honor that wouldn't realistically be auto-assigned
+# to a freshly commissioned pilot in his early 20s. Weighted heavily
+# toward 3rd class, the standard starting qualification.
+PILOT_CLASSIFICATIONS = [
+    "Military Pilot, 3rd Class",
+    "Military Pilot, 2nd Class",
+    "Military Pilot, 1st Class",
+]
+PILOT_CLASSIFICATION_WEIGHTS = [70, 25, 5]
+
+DISTINGUISHING_FEATURES = [
+    "a small scar above the left eyebrow from a childhood accident",
+    "a faded tattoo of an anchor on his forearm from a summer spent near the Black Sea",
+    "notably tall for his squadron, often the subject of jokes about cockpit legroom",
+    "a habit of tapping his class ring against the canopy rail before every flight",
+    "a slight limp from a training injury, not enough to ground him",
+    "keeps his hair regulation-short but is known to grumble about it",
+    "a burn scar on his right hand from an engine fire during flight school",
+    "unusually good eyesight, noted favorably in his flight school evaluations",
+    "no distinguishing marks of note",
+    "a birthmark on his neck that his mother always said brought good luck",
+]
+
+BACKSTORY_FAMILY_BACKGROUNDS = [
+    "the son of a factory foreman",
+    "raised by a schoolteacher mother after his father's early death",
+    "from a family of collective farmers",
+    "the youngest of four brothers in a railway worker's household",
+    "raised in a military family, his father a decorated infantry veteran",
+    "the son of a coal miner",
+    "from a family of dockworkers",
+    "raised by his grandparents after his parents moved for factory work",
+    "the son of a local Party committee official",
+    "from a family with a long tradition of military service",
+    "the son of a shipyard engineer",
+    "raised in a household of schoolteachers",
+]
+
+BACKSTORY_JOIN_REASONS = [
+    'joined DOSAAF as a teenager, drawn in by a glider demonstration at a regional youth festival',
+    "was recommended for flight school after excelling in his local DOSAAF aviation club",
+    "applied to the aviation academy after his older brother's stories of VVS service",
+    "was inspired to fly after watching interceptors overhead during childhood",
+    "enrolled in a DOSAAF parachute club before transferring to powered flight training",
+    "was selected for pilot training during his mandatory military service",
+    "grew up near an airfield and spent his youth watching the aircraft come and go",
+    "followed a cousin's path into military aviation after finishing secondary school",
+    "won a regional aeromodelling competition that caught the eye of a DOSAAF instructor",
+]
+
+BACKSTORY_TRAITS = [
+    "known among his squadron mates for his dry sense of humor",
+    "quiet and methodical, rarely speaking unless it matters",
+    "a passionate chess player who keeps a travel set in his flight bag",
+    "known for an easy confidence that steadies newer pilots before a sortie",
+    "known for writing letters home every week without fail",
+    "a keen amateur mechanic who tinkers with radios in his off hours",
+    "rarely without a well-worn paperback novel in his flight bag",
+    "known to hum old folk songs while pre-flighting his aircraft",
+    "an avid football fan who never misses a chance to talk about it",
+    "meticulous about his gear, to the point of good-natured teasing from others",
+]
+
+
+def generate_backstory(first_name: str, last_name: str, airframe: str = None) -> dict:
+    """
+    Generates a full Soviet-style personal file (личное дело) for a newly
+    enlisted pilot: birthplace/birthdate, nationality, social origin, Party/
+    Komsomol status, marital status, military education, pilot
+    qualification class, a distinguishing feature, next of kin, and a
+    brief unique narrative backstory. Ages skew early 20s as of 1986
+    (server setting). With 15 republics x ~4 cities each, correlated
+    nationality options, 3 social origins, ~5 party statuses, marital
+    status with named spouses/children, 5 academies, 3 qualification
+    classes, 10 distinguishing features, 12 family backgrounds, 9 join
+    reasons, 10 traits, and a near-continuous birthdate — the combined
+    space is large enough that 100+ pilots will not read as copies of
+    each other.
+    """
+    republic = random.choice(list(SSR_BIRTHPLACES.keys()))
+    city = random.choice(SSR_BIRTHPLACES[republic])
+    birth_place = f"{city}, {republic}"
+
+    age = random.randint(20, 25)
+    birth_year = 1986 - age
+    birth_month = random.randint(1, 12)
+    birth_day = random.randint(1, 28)  # avoids month-length edge cases
+    birth_date = datetime.date(birth_year, birth_month, birth_day)
+
+    nationality = random.choice(REPUBLIC_NATIONALITIES.get(republic, ["Russian"]))
+
+    social_origin_ru, social_origin_en = random.choice(SOCIAL_ORIGINS)
+
+    party_status = random.choices(
+        PARTY_STATUS_OPTIONS, weights=PARTY_STATUS_WEIGHTS, k=1
+    )[0]
+
+    # Marital status: ~65% single, ~35% married (with a chance of children).
+    if random.random() < 0.65:
+        marital_status = "Single"
+    else:
+        spouse_first = random.choice(SOVIET_FEMALE_FIRST_NAMES)
+        children = random.choices([0, 1, 2], weights=[50, 35, 15])[0]
+        if children == 0:
+            marital_status = f"Married; wife {spouse_first} {last_name}"
+        else:
+            child_word = "child" if children == 1 else "children"
+            marital_status = f"Married; wife {spouse_first} {last_name}, {children} {child_word}"
+
+    is_helicopter = bool(airframe) and airframe.startswith("Mi-")
+    academy = random.choice(HELICOPTER_ACADEMIES if is_helicopter else FIXED_WING_ACADEMIES)
+    commission_age = random.randint(21, 23)
+    graduation_year = min(birth_year + commission_age, 1986)
+
+    qualification = random.choices(
+        PILOT_CLASSIFICATIONS, weights=PILOT_CLASSIFICATION_WEIGHTS, k=1
+    )[0]
+
+    distinguishing_feature = random.choice(DISTINGUISHING_FEATURES)
+
+    kin_relation = random.choice(["Mother", "Father"])
+    kin_first = random.choice(SOVIET_FEMALE_FIRST_NAMES) if kin_relation == "Mother" else random.choice(SOVIET_FIRST_NAMES)
+    next_of_kin = f"{kin_relation}, {kin_first} {last_name}, {birth_place}"
+
+    service_record_details = (
+        f"Nationality: {nationality}\n"
+        f"Social Origin: {social_origin_ru} ({social_origin_en})\n"
+        f"Party Status: {party_status}\n"
+        f"Marital Status: {marital_status}\n"
+        f"Military Education: {academy} ({graduation_year})\n"
+        f"Qualification: {qualification}\n"
+        f"Distinguishing Features: {distinguishing_feature}\n"
+        f"Next of Kin: {next_of_kin}"
+    )
+
+    family = random.choice(BACKSTORY_FAMILY_BACKGROUNDS)
+    join_reason = random.choice(BACKSTORY_JOIN_REASONS)
+    trait = random.choice(BACKSTORY_TRAITS)
+
+    backstory = (
+        f"Born in {birth_place}, {first_name} {last_name} is {family}. "
+        f"He {join_reason}. Now {age}, he is {trait}."
+    )
+
+    return {
+        "birth_place": birth_place,
+        "birth_date": birth_date,
+        "backstory": backstory,
+        "service_record_details": service_record_details,
+    }

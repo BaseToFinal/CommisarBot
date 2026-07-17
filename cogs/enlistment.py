@@ -89,6 +89,7 @@ class Enlistment(commands.Cog):
         squadron = data.AIRFRAME_SQUADRONS[airframe]
         soviet_name = f"{first_name} {last_name}"
         avatar_url = await assign_pilot_avatar(soviet_name, interaction.user.id, self.bot)
+        bio = data.generate_backstory(first_name, last_name, airframe)
 
         record = await db.create_pilot(
             discord_id=interaction.user.id,
@@ -98,6 +99,10 @@ class Enlistment(commands.Cog):
             airframe=airframe,
             squadron=squadron,
             avatar_url=avatar_url,
+            birth_place=bio["birth_place"],
+            birth_date=bio["birth_date"],
+            backstory=bio["backstory"],
+            service_record_details=bio["service_record_details"],
         )
 
         if record is None:
@@ -134,6 +139,9 @@ class Enlistment(commands.Cog):
         )
         embed.add_field(name="Airframe", value=airframe, inline=True)
         embed.add_field(name="Squadron", value=squadron, inline=True)
+        embed.add_field(name="Born", value=f'{bio["birth_date"].isoformat()} — {bio["birth_place"]}', inline=False)
+        embed.add_field(name="Service Record", value=bio["service_record_details"], inline=False)
+        embed.add_field(name="Personal File", value=bio["backstory"], inline=False)
         embed.set_thumbnail(url=avatar_url)
         embed.set_footer(text="Your service record begins now. Fly well, Comrade.")
 

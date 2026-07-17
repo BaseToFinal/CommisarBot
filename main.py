@@ -53,6 +53,7 @@ COGS = [
     "cogs.admin",
     "cogs.service_record",
     "cogs.personnel_office",
+    "cogs.daily_orders",
 ]
 
 

@@ -73,6 +73,10 @@ async def create_pilot(
     airframe: str,
     squadron: str,
     avatar_url: str,
+    birth_place: str = None,
+    birth_date=None,
+    backstory: str = None,
+    service_record_details: str = None,
 ) -> asyncpg.Record:
     """Insert a fresh pilot row, or fully reset an existing KIA row.
 
@@ -90,14 +94,16 @@ async def create_pilot(
                 kills_air, status, fatigue_score, cheks, avatar_url,
                 earned_medals, commendations, reprimands,
                 custom_callsign_used, reprimand_count_active,
-                rr_return_at, loa_start, loa_end, loa_reason, updated_at
+                rr_return_at, loa_start, loa_end, loa_reason,
+                birth_place, birth_date, backstory, service_record_details, updated_at
             ) VALUES (
                 $1, $2, $3, $4, 'Junior Lieutenant',
                 $5, $6, 0, 0.0, 0,
                 0, 'ACTIVE', 0.0, 0, $7,
                 '[]', '[]', '[]',
                 FALSE, 0,
-                NULL, NULL, NULL, NULL, NOW()
+                NULL, NULL, NULL, NULL,
+                $8, $9, $10, $11, NOW()
             )
             ON CONFLICT (discord_id) DO UPDATE SET
                 guild_id = EXCLUDED.guild_id,
@@ -123,12 +129,17 @@ async def create_pilot(
                 loa_start = NULL,
                 loa_end = NULL,
                 loa_reason = NULL,
+                birth_place = EXCLUDED.birth_place,
+                birth_date = EXCLUDED.birth_date,
+                backstory = EXCLUDED.backstory,
+                service_record_details = EXCLUDED.service_record_details,
                 updated_at = NOW()
             WHERE pilot_records.status = 'KIA'
             RETURNING *
             """,
             str(discord_id), str(guild_id), soviet_name, callsign,
             airframe, squadron, avatar_url,
+            birth_place, birth_date, backstory, service_record_details,
         )
 
 
@@ -406,6 +417,51 @@ async def get_rank_image(rank_name: str) -> Optional[asyncpg.Record]:
     pool = get_pool()
     async with pool.acquire() as conn:
         return await conn.fetchrow("SELECT * FROM rank_catalog WHERE rank_name = $1", rank_name)
+
+
+# ------------------------------------------------------------------
+# Daily Orders staging
+# ------------------------------------------------------------------
+
+async def get_daily_orders_state() -> asyncpg.Record:
+    """Fetch the singleton staging row, creating it with defaults if absent."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM daily_orders_state WHERE id = 1")
+        if row is None:
+            row = await conn.fetchrow(
+                "INSERT INTO daily_orders_state (id) VALUES (1) RETURNING *"
+            )
+        return row
+
+
+async def update_daily_orders_state(**fields) -> asyncpg.Record:
+    await get_daily_orders_state()  # ensure the row exists first
+    pool = get_pool()
+    set_clauses = []
+    values = []
+    for i, (key, value) in enumerate(fields.items(), start=1):
+        set_clauses.append(f"{key} = ${i}")
+        values.append(value)
+    query = (
+        f"UPDATE daily_orders_state SET {', '.join(set_clauses)}, updated_at = NOW() "
+        f"WHERE id = 1 RETURNING *"
+    )
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(query, *values)
+
+
+async def reset_daily_orders_state_after_post(next_mission_number: int):
+    """Clear staged objective/readiness/crew overrides back to defaults,
+    but carry forward the incremented mission number, after a post goes out
+    (scheduled or forced) — each day should start fresh rather than repeat
+    yesterday's staged content."""
+    await update_daily_orders_state(
+        mission_number=next_mission_number,
+        objective=None,
+        readiness_condition=None,
+        manual_crew_ids="[]",
+    )
 
 
 # ------------------------------------------------------------------

@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS pilot_records (
     loa_start             DATE,
     loa_end               DATE,
     loa_reason            TEXT,
+    birth_place           VARCHAR,             -- "City, Republic SSR"
+    birth_date            DATE,
+    backstory             TEXT,
+    service_record_details TEXT,               -- nationality, party status, education, etc.
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -86,6 +90,24 @@ CREATE TABLE IF NOT EXISTS rank_catalog (
     added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Singleton staging row for the next Daily Orders post. Admins can prep
+-- mission_number/objective/readiness/manual crew list ahead of the
+-- scheduled auto-post via dedicated commands; whatever hasn't been set
+-- falls back to sensible defaults (auto-roster for crew, placeholder text
+-- for objective) so the automatic post never goes out with blank fields.
+-- Reset back to defaults after each post (scheduled or forced) so stale
+-- info doesn't carry over to the next day.
+CREATE TABLE IF NOT EXISTS daily_orders_state (
+    id                  INTEGER PRIMARY KEY DEFAULT 1,
+    mission_number      INTEGER NOT NULL DEFAULT 1,
+    objective           TEXT,
+    readiness_condition VARCHAR,
+    manual_crew_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of discord_ids; empty = auto roster
+    conditions_text     TEXT,                          -- manually-staged server/mission/weather snapshot
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT daily_orders_state_singleton CHECK (id = 1)
+);
+
 -- Fallen-heroes memorial archive (kept even after a fresh /enlist wipes the
 -- live pilot_records row identity, since pilot_records is reused by
 -- discord_id on re-enlistment).
@@ -105,3 +127,22 @@ CREATE TABLE IF NOT EXISTS fallen_heroes (
     cause_of_death  TEXT,
     died_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ============================================================
+-- Migrations for already-deployed databases
+-- ============================================================
+-- CREATE TABLE IF NOT EXISTS is a no-op on tables that already exist, so
+-- columns added to an existing table's definition above won't actually
+-- appear in a database that was created before this change. These
+-- ALTER TABLE ... ADD COLUMN IF NOT EXISTS statements are idempotent and
+-- safe to run on every boot regardless of whether the column already
+-- exists (fresh install) or needs to be added (existing deployment).
+
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS birth_place VARCHAR;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS birth_date DATE;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS backstory TEXT;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS service_record_details TEXT;
+
+-- Defensive: covers the case where daily_orders_state was already created
+-- by an earlier deploy before conditions_text was added to its definition.
+ALTER TABLE daily_orders_state ADD COLUMN IF NOT EXISTS conditions_text TEXT;

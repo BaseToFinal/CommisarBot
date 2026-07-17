@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 import discord
@@ -546,6 +547,118 @@ class AdminCog(commands.Cog):
         )
         embed.set_thumbnail(url=stored_url)
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="edit_pilot_bio",
+        description="[Admin] Manually set a pilot's birthplace, birthdate, backstory, and/or service record.",
+    )
+    @app_commands.describe(
+        user="The pilot to edit",
+        birthplace="e.g. 'Kiev, Ukrainian SSR' (free text)",
+        birthdate="Format: YYYY-MM-DD",
+        backstory="A brief personal backstory paragraph",
+        service_record="Structured details: nationality, party status, education, etc.",
+    )
+    async def edit_pilot_bio(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        birthplace: str = None,
+        birthdate: str = None,
+        backstory: str = None,
+        service_record: str = None,
+    ):
+        if not has_commissar_perms(interaction.user):
+            await interaction.response.send_message(
+                "Only Admins/Commissars may use this command.", ephemeral=True
+            )
+            return
+
+        record = await db.get_pilot(user.id)
+        if record is None or record["status"] == "KIA":
+            await interaction.response.send_message(
+                "That pilot does not have an active service record.", ephemeral=True
+            )
+            return
+
+        fields = {}
+        changes = []
+        if birthplace is not None:
+            fields["birth_place"] = birthplace
+            changes.append(f"Birthplace set to: {birthplace}")
+        if birthdate is not None:
+            try:
+                parsed_date = datetime.datetime.strptime(birthdate.strip(), "%Y-%m-%d").date()
+            except ValueError:
+                await interaction.response.send_message(
+                    "Birthdate must be in YYYY-MM-DD format.", ephemeral=True
+                )
+                return
+            fields["birth_date"] = parsed_date
+            changes.append(f"Birthdate set to: {parsed_date.isoformat()}")
+        if backstory is not None:
+            fields["backstory"] = backstory
+            changes.append("Backstory updated.")
+        if service_record is not None:
+            fields["service_record_details"] = service_record
+            changes.append("Service record updated.")
+
+        if not fields:
+            await interaction.response.send_message(
+                "No fields provided — nothing to change.", ephemeral=True
+            )
+            return
+
+        await db.update_pilot_fields(user.id, **fields)
+
+        embed = discord.Embed(
+            title="Personal File Updated",
+            description=f"Updated bio for {user.mention}:",
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="Changes", value="\n".join(changes), inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="regenerate_backstory",
+        description="[Admin] Randomly regenerate a pilot's entire personal file from scratch.",
+    )
+    async def regenerate_backstory(self, interaction: discord.Interaction, user: discord.Member):
+        if not has_commissar_perms(interaction.user):
+            await interaction.response.send_message(
+                "Only Admins/Commissars may use this command.", ephemeral=True
+            )
+            return
+
+        record = await db.get_pilot(user.id)
+        if record is None or record["status"] == "KIA":
+            await interaction.response.send_message(
+                "That pilot does not have an active service record.", ephemeral=True
+            )
+            return
+
+        name_parts = record["soviet_name"].split()
+        first_name = name_parts[0] if name_parts else record["soviet_name"]
+        last_name = name_parts[-1] if len(name_parts) > 1 else ""
+        bio = data.generate_backstory(first_name, last_name, record["airframe"])
+
+        await db.update_pilot_fields(
+            user.id,
+            birth_place=bio["birth_place"],
+            birth_date=bio["birth_date"],
+            backstory=bio["backstory"],
+            service_record_details=bio["service_record_details"],
+        )
+
+        embed = discord.Embed(
+            title="Backstory Regenerated",
+            description=f'{user.mention}\'s personal file has been randomly regenerated.',
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="Born", value=f'{bio["birth_date"].isoformat()} — {bio["birth_place"]}', inline=False)
+        embed.add_field(name="Service Record", value=bio["service_record_details"], inline=False)
+        embed.add_field(name="Backstory", value=bio["backstory"], inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
