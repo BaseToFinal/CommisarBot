@@ -146,3 +146,28 @@ ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS service_record_details TEXT;
 -- Defensive: covers the case where daily_orders_state was already created
 -- by an earlier deploy before conditions_text was added to its definition.
 ALTER TABLE daily_orders_state ADD COLUMN IF NOT EXISTS conditions_text TEXT;
+
+-- One-time repair: Discord signs CDN attachment URLs with ?ex=...&is=...
+-- &hm=... query parameters that expire (~24h). Earlier versions of this
+-- bot stored those signed URLs as-is in avatar_url/attachment_url/
+-- image_url columns, so any image assigned more than about a day before
+-- this fix deployed has gone dead. Per Discord's own API docs, the BARE
+-- CDN path (no query string) is unsigned and never expires — stripping
+-- the query string here retroactively repairs every already-broken image
+-- without needing to re-fetch anything from Discord. Idempotent: rows
+-- with no '?' (already stripped, or non-Discord URLs) are left unchanged.
+UPDATE pilot_records
+SET avatar_url = split_part(avatar_url, '?', 1)
+WHERE avatar_url LIKE '%cdn.discordapp.com%' OR avatar_url LIKE '%media.discordapp.net%';
+
+UPDATE avatar_pool
+SET attachment_url = split_part(attachment_url, '?', 1)
+WHERE attachment_url LIKE '%cdn.discordapp.com%' OR attachment_url LIKE '%media.discordapp.net%';
+
+UPDATE medal_catalog
+SET image_url = split_part(image_url, '?', 1)
+WHERE image_url LIKE '%cdn.discordapp.com%' OR image_url LIKE '%media.discordapp.net%';
+
+UPDATE rank_catalog
+SET image_url = split_part(image_url, '?', 1)
+WHERE image_url LIKE '%cdn.discordapp.com%' OR image_url LIKE '%media.discordapp.net%';

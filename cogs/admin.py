@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import db
 import data
-from utils import format_nickname, store_attachment
+from utils import format_nickname, store_attachment, strip_discord_cdn_signature
 from config import has_commissar_perms
 
 logger = logging.getLogger("vvs.admin")
@@ -257,7 +257,7 @@ class AdminCog(commands.Cog):
                     or attachment.filename.lower().endswith(image_exts)
                 )
                 if is_image:
-                    entries.append((f"att-{attachment.id}", attachment.url))
+                    entries.append((f"att-{attachment.id}", strip_discord_cdn_signature(attachment.url)))
                 elif len(sample_debug) < 3:
                     sample_debug.append(
                         f"filename={attachment.filename!r} content_type={attachment.content_type!r}"
@@ -274,7 +274,7 @@ class AdminCog(commands.Cog):
                 elif embed.thumbnail and embed.thumbnail.url:
                     url = embed.thumbnail.url
                 if url and url.split("?")[0].lower().endswith(image_exts):
-                    entries.append((f"embed-{message.id}-{i}", url))
+                    entries.append((f"embed-{message.id}-{i}", strip_discord_cdn_signature(url)))
                 elif url and len(sample_debug) < 3:
                     sample_debug.append(f"embed_url={url!r} (extension not recognized)")
                 elif embed.type and len(sample_debug) < 3:

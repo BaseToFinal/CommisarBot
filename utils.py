@@ -5,6 +5,7 @@ Shared helpers: nickname formatting, embed builders, and avatar generation.
 import io
 import json
 import logging
+import urllib.parse
 from typing import Optional
 
 import discord
@@ -65,6 +66,29 @@ async def _fetch_placeholder(pilot_name: str) -> str:
     return f"https://placehold.co/512x512/1a1a1a/cccccc?text={slug}"
 
 
+def strip_discord_cdn_signature(url: str) -> str:
+    """
+    Discord signs CDN attachment URLs with ?ex=...&is=...&hm=... query
+    parameters that expire (roughly 24h). Per Discord's own API docs,
+    passing the CDN URL WITHOUT these parameters into embed image /
+    webhook avatar fields causes Discord to auto-refresh and render it
+    indefinitely — "the standard CDN endpoints... are not signed, so they
+    will not expire." Storing URLs with the signature intact is why
+    previously-assigned avatars/icons go dead after about a day; stripping
+    it here at every capture point is the fix. Only touches Discord's own
+    CDN hosts — external URLs (e.g. the placehold.co fallback, or a pasted
+    third-party image link) are left untouched, since stripping query
+    params from arbitrary external hosts could break access there.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.netloc in ("cdn.discordapp.com", "media.discordapp.net"):
+            return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    except Exception:
+        logger.exception("Failed to parse URL for CDN signature stripping: %r", url)
+    return url
+
+
 async def _store_bytes_to_discord(bot: discord.Client, image_bytes: bytes, filename: str) -> str | None:
     """
     Upload generated image bytes to a dedicated storage channel so we end up
@@ -92,7 +116,7 @@ async def _store_bytes_to_discord(bot: discord.Client, image_bytes: bytes, filen
         return None
 
     if message.attachments:
-        return message.attachments[0].url
+        return strip_discord_cdn_signature(message.attachments[0].url)
     return None
 
 

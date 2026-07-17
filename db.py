@@ -311,18 +311,21 @@ async def get_pilots_with_pending_loa_return():
 async def upsert_avatar_pool_entries(entries: list[tuple[str, str]]) -> int:
     """
     entries: list of (message_id, attachment_url) tuples.
-    Inserts new ones, ignores ones already recorded (by message_id).
-    Returns number of newly inserted rows.
+    Inserts new ones; for ones already recorded, refreshes attachment_url
+    (but leaves is_used/assigned_to untouched) so a re-sync also repairs
+    any URL drift for images already in the pool, not just adds new ones.
+    Returns the number of entries processed.
     """
     if not entries:
         return 0
     pool = get_pool()
     async with pool.acquire() as conn:
-        result = await conn.executemany(
+        await conn.executemany(
             """
             INSERT INTO avatar_pool (message_id, attachment_url)
             VALUES ($1, $2)
-            ON CONFLICT (message_id) DO NOTHING
+            ON CONFLICT (message_id) DO UPDATE SET
+                attachment_url = EXCLUDED.attachment_url
             """,
             entries,
         )
