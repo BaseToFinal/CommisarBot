@@ -419,6 +419,7 @@ class AdminCog(commands.Cog):
     )
     @app_commands.describe(
         user="The pilot to edit",
+        name="Set their full service-profile name exactly (e.g. 'Ivan Petrov') — also updates nickname",
         rank="Set their rank exactly (also updates nickname)",
         flight_hours="Set total flight hours to this exact value",
         sorties="Set total sorties to this exact value",
@@ -434,6 +435,7 @@ class AdminCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.Member,
+        name: str = None,
         rank: app_commands.Choice[str] = None,
         flight_hours: float = None,
         sorties: int = None,
@@ -457,6 +459,16 @@ class AdminCog(commands.Cog):
 
         fields = {}
         changes = []
+        if name is not None:
+            cleaned_name = " ".join(name.split())  # collapse stray whitespace
+            if len(cleaned_name.split()) < 2:
+                await interaction.response.send_message(
+                    "Name must include at least a first and last name, e.g. `Ivan Petrov`.",
+                    ephemeral=True,
+                )
+                return
+            fields["soviet_name"] = cleaned_name
+            changes.append(f'Name: {record["soviet_name"]} → {cleaned_name}')
         if rank is not None:
             fields["current_rank"] = rank.value
             changes.append(f'Rank: {record["current_rank"]} → {rank.value}')
@@ -491,12 +503,13 @@ class AdminCog(commands.Cog):
             user.id, "EDIT", "; ".join(changes), interaction.user.id
         )
 
-        if rank is not None:
-            last_name = record["soviet_name"].split()[-1]
+        if rank is not None or name is not None:
+            last_name = fields.get("soviet_name", record["soviet_name"]).split()[-1]
+            effective_rank = rank.value if rank is not None else record["current_rank"]
             prefix_tag = "[LOA]" if record["status"] == "LOA" else ""
-            new_nick = format_nickname(rank.value, record["callsign"], last_name, prefix_tag=prefix_tag)
+            new_nick = format_nickname(effective_rank, record["callsign"], last_name, prefix_tag=prefix_tag)
             try:
-                await user.edit(nick=new_nick, reason="Rank corrected via /edit_pilot")
+                await user.edit(nick=new_nick, reason="Corrected via /edit_pilot")
             except discord.Forbidden:
                 logger.warning("Missing permission to rename %s on edit_pilot", user.id)
 

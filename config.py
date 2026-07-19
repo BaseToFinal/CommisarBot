@@ -27,6 +27,12 @@ class Config:
     AVATAR_STORAGE_CHANNEL_ID = _get_int("AVATAR_STORAGE_CHANNEL_ID")
     PILOT_PHOTO_POOL_CHANNEL_ID = _get_int("PILOT_PHOTO_POOL_CHANNEL_ID")
 
+    # Channel where enlisted members post guncam screenshots to claim a
+    # kill. Any image attachment posted here by a pilot with an active
+    # service record is picked up automatically and routed to
+    # ADMIN_APPROVAL_CHANNEL_ID for Commissar sign-off.
+    KILLCLAIMS_CHANNEL_ID = _get_int("KILLCLAIMS_CHANNEL_ID")
+
     # Channel where DCSServerBot posts its live server-status embed
     # (map, in-mission weather, player slots, runtime, etc).
     DCS_STATUS_CHANNEL_ID = _get_int("DCS_STATUS_CHANNEL_ID")

@@ -54,6 +54,9 @@ COGS = [
     "cogs.service_record",
     "cogs.personnel_office",
     "cogs.daily_orders",
+    "cogs.killclaims",
+    "cogs.dcs_link",
+    "cogs.dcs_sync",
 ]
 
 

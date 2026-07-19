@@ -128,6 +128,60 @@ CREATE TABLE IF NOT EXISTS fallen_heroes (
     died_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Guncam kill claims. One row per image attachment posted in
+-- #killclaims by an enlisted member. Stays PENDING until a Commissar
+-- actions the approval buttons; kept permanently (not deleted) as an
+-- audit trail even after resolution.
+CREATE TABLE IF NOT EXISTS kill_claims (
+    id             SERIAL PRIMARY KEY,
+    discord_id     VARCHAR NOT NULL,
+    message_id     VARCHAR NOT NULL,   -- original message in #killclaims
+    channel_id     VARCHAR NOT NULL,   -- original message's channel
+    review_message_id VARCHAR,          -- the approval-embed message in ADMIN_APPROVAL_CHANNEL_ID
+    image_url      TEXT NOT NULL,
+    status         VARCHAR NOT NULL DEFAULT 'PENDING',  -- PENDING, APPROVED_AIR, APPROVED_GROUND, DENIED
+    reviewed_by    VARCHAR,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reviewed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_kill_claims_status ON kill_claims(status) WHERE status = 'PENDING';
+
+-- Per-pilot API tokens used by the Cold War EFB (or any future companion
+-- app) to authenticate sortie reports without ever handling Discord OAuth.
+-- The token IS the identity for ingestion purposes — the standalone
+-- ingest service looks up discord_id from this table directly, so
+-- dcs_player_name on pilot_records is informational/cosmetic only, not
+-- part of the auth path. One live token per pilot; issuing a new one
+-- invalidates the old (UNIQUE + upsert-by-discord_id).
+CREATE TABLE IF NOT EXISTS pilot_efb_tokens (
+    discord_id   VARCHAR PRIMARY KEY REFERENCES pilot_records(discord_id) ON DELETE CASCADE,
+    token        VARCHAR NOT NULL UNIQUE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Sortie reports posted by the EFB's bridge.js sortie tracker at the end
+-- of each flight. Auto-credited on arrival (no Commissar review, unlike
+-- kill_claims) — the ingest service inserts PENDING rows here, and
+-- CommissarBot's dcs_sync cog polls, applies the stat deltas, and marks
+-- them PROCESSED. Kept permanently as an audit trail.
+CREATE TABLE IF NOT EXISTS dcs_sortie_reports (
+    id                  SERIAL PRIMARY KEY,
+    discord_id          VARCHAR NOT NULL,
+    airframe            VARCHAR,
+    sorties_delta       INTEGER NOT NULL DEFAULT 0,
+    flight_hours_delta  REAL NOT NULL DEFAULT 0.0,
+    takeoffs_delta      INTEGER NOT NULL DEFAULT 0,
+    landings_delta      INTEGER NOT NULL DEFAULT 0,
+    status              VARCHAR NOT NULL DEFAULT 'PENDING',  -- PENDING, PROCESSED, REJECTED
+    raw_payload         TEXT,                                 -- original JSON, for audit/debugging
+    reported_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    processed_at        TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_dcs_sortie_reports_status ON dcs_sortie_reports(status) WHERE status = 'PENDING';
+CREATE INDEX IF NOT EXISTS idx_dcs_sortie_reports_discord_reported ON dcs_sortie_reports(discord_id, reported_at DESC);
+
 -- ============================================================
 -- Migrations for already-deployed databases
 -- ============================================================
@@ -142,6 +196,29 @@ ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS birth_place VARCHAR;
 ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS birth_date DATE;
 ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS backstory TEXT;
 ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS service_record_details TEXT;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS dcs_player_name VARCHAR;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS takeoffs INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS landings INTEGER NOT NULL DEFAULT 0;
+
+-- Lifetime DCS-tracked totals, spanning every life this discord_id has ever
+-- enlisted under. Unlike sorties/flight_hours/takeoffs/landings above
+-- (which are per-character and deliberately reset to 0 on re-enlistment —
+-- see create_pilot's ON CONFLICT clause in db.py), these four columns are
+-- never zeroed by anything. They only ever go up. A KIA'd pilot's combat
+-- record dies with them (as intended — permadeath should mean something),
+-- but the underlying flight time and stick time a real person put in
+-- flying for the squadron does not disappear just because their in-game
+-- persona did.
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS dcs_lifetime_sorties INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS dcs_lifetime_flight_hours REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS dcs_lifetime_takeoffs INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS dcs_lifetime_landings INTEGER NOT NULL DEFAULT 0;
+
+-- fallen_heroes gets the same takeoffs/landings snapshot sorties/flight_hours
+-- already had, for consistency — the per-character DCS stats a fallen
+-- pilot had at time of death are archived here same as everything else.
+ALTER TABLE fallen_heroes ADD COLUMN IF NOT EXISTS takeoffs INTEGER;
+ALTER TABLE fallen_heroes ADD COLUMN IF NOT EXISTS landings INTEGER;
 
 -- Defensive: covers the case where daily_orders_state was already created
 -- by an earlier deploy before conditions_text was added to its definition.

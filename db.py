@@ -95,7 +95,8 @@ async def create_pilot(
                 earned_medals, commendations, reprimands,
                 custom_callsign_used, reprimand_count_active,
                 rr_return_at, loa_start, loa_end, loa_reason,
-                birth_place, birth_date, backstory, service_record_details, updated_at
+                birth_place, birth_date, backstory, service_record_details,
+                takeoffs, landings, updated_at
             ) VALUES (
                 $1, $2, $3, $4, 'Junior Lieutenant',
                 $5, $6, 0, 0.0, 0,
@@ -103,7 +104,8 @@ async def create_pilot(
                 '[]', '[]', '[]',
                 FALSE, 0,
                 NULL, NULL, NULL, NULL,
-                $8, $9, $10, $11, NOW()
+                $8, $9, $10, $11,
+                0, 0, NOW()
             )
             ON CONFLICT (discord_id) DO UPDATE SET
                 guild_id = EXCLUDED.guild_id,
@@ -133,6 +135,8 @@ async def create_pilot(
                 birth_date = EXCLUDED.birth_date,
                 backstory = EXCLUDED.backstory,
                 service_record_details = EXCLUDED.service_record_details,
+                takeoffs = 0,
+                landings = 0,
                 updated_at = NOW()
             WHERE pilot_records.status = 'KIA'
             RETURNING *
@@ -237,13 +241,14 @@ async def archive_fallen_hero(record: asyncpg.Record, cause_of_death: str):
             INSERT INTO fallen_heroes (
                 discord_id, soviet_name, callsign, final_rank, squadron,
                 airframe, sorties, flight_hours, kills_ground, kills_air,
-                medals, cause_of_death
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                medals, cause_of_death, takeoffs, landings
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
             """,
             record["discord_id"], record["soviet_name"], record["callsign"],
             record["current_rank"], record["squadron"], record["airframe"],
             record["sorties"], record["flight_hours"], record["kills_ground"],
             record["kills_air"], record["earned_medals"], cause_of_death,
+            record["takeoffs"], record["landings"],
         )
 
 
@@ -485,4 +490,182 @@ async def get_all_active_pilots() -> list:
     async with pool.acquire() as conn:
         return await conn.fetch(
             "SELECT * FROM pilot_records WHERE status != 'KIA' ORDER BY squadron, current_rank"
+        )
+
+
+# ------------------------------------------------------------------
+# Kill claims (#killclaims guncam workflow)
+# ------------------------------------------------------------------
+
+async def create_kill_claim(
+    discord_id: str, message_id: str, channel_id: str, image_url: str
+) -> asyncpg.Record:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            INSERT INTO kill_claims (discord_id, message_id, channel_id, image_url)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+            """,
+            str(discord_id), str(message_id), str(channel_id), image_url,
+        )
+
+
+async def set_kill_claim_review_message(claim_id: int, review_message_id: str):
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE kill_claims SET review_message_id = $2 WHERE id = $1",
+            claim_id, str(review_message_id),
+        )
+
+
+async def get_kill_claim(claim_id: int) -> Optional[asyncpg.Record]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM kill_claims WHERE id = $1", claim_id)
+
+
+async def resolve_kill_claim(claim_id: int, status: str, reviewed_by: str) -> Optional[asyncpg.Record]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            UPDATE kill_claims
+            SET status = $2, reviewed_by = $3, reviewed_at = NOW()
+            WHERE id = $1 AND status = 'PENDING'
+            RETURNING *
+            """,
+            claim_id, status, str(reviewed_by),
+        )
+
+
+async def get_pending_kill_claims() -> list:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM kill_claims WHERE status = 'PENDING' ORDER BY created_at"
+        )
+
+
+# ------------------------------------------------------------------
+# DCS career tracker: EFB token auth, DCS name link, sortie reports
+# ------------------------------------------------------------------
+
+async def set_dcs_player_name(discord_id: str, dcs_player_name: str) -> Optional[asyncpg.Record]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            "UPDATE pilot_records SET dcs_player_name = $2, updated_at = NOW() "
+            "WHERE discord_id = $1 RETURNING *",
+            str(discord_id), dcs_player_name,
+        )
+
+
+async def issue_efb_token(discord_id: str, token: str) -> asyncpg.Record:
+    """
+    One live token per pilot — issuing a new one supersedes any prior token
+    (old copies of the EFB config immediately stop authenticating), which is
+    the intended behavior for a "I think my token leaked" regenerate flow.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            INSERT INTO pilot_efb_tokens (discord_id, token)
+            VALUES ($1, $2)
+            ON CONFLICT (discord_id) DO UPDATE SET token = EXCLUDED.token, created_at = NOW()
+            RETURNING *
+            """,
+            str(discord_id), token,
+        )
+
+
+async def get_efb_token_owner(token: str) -> Optional[asyncpg.Record]:
+    """Used by the standalone ingest service to resolve a bearer token to a pilot."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            "SELECT discord_id FROM pilot_efb_tokens WHERE token = $1", token
+        )
+
+
+async def create_sortie_report(
+    discord_id: str, airframe: str, sorties_delta: int, flight_hours_delta: float,
+    takeoffs_delta: int, landings_delta: int, raw_payload: str,
+) -> asyncpg.Record:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            INSERT INTO dcs_sortie_reports
+                (discord_id, airframe, sorties_delta, flight_hours_delta, takeoffs_delta, landings_delta, raw_payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *
+            """,
+            str(discord_id), airframe, sorties_delta, flight_hours_delta,
+            takeoffs_delta, landings_delta, raw_payload,
+        )
+
+
+async def get_pending_sortie_reports() -> list:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM dcs_sortie_reports WHERE status = 'PENDING' ORDER BY reported_at"
+        )
+
+
+async def apply_sortie_report(report_id: int, discord_id: str, sorties: int, hours: float,
+                                takeoffs: int, landings: int) -> Optional[asyncpg.Record]:
+    """
+    Applies the stat deltas to pilot_records and marks the report PROCESSED
+    in one round trip. Only touches rows still PENDING, so a report can
+    never be double-applied even if the sync cog's poll loop overlaps
+    itself after a slow tick.
+
+    Bumps both the per-character columns (sorties/flight_hours/takeoffs/
+    landings — reset to 0 on KIA re-enlistment) and the dcs_lifetime_*
+    columns (never reset, survive across every life this discord_id has
+    ever had) in the same statement.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            report = await conn.fetchrow(
+                "UPDATE dcs_sortie_reports SET status = 'PROCESSED', processed_at = NOW() "
+                "WHERE id = $1 AND status = 'PENDING' RETURNING *",
+                report_id,
+            )
+            if report is None:
+                return None
+            pilot = await conn.fetchrow(
+                """
+                UPDATE pilot_records
+                SET sorties = sorties + $2,
+                    flight_hours = flight_hours + $3,
+                    takeoffs = takeoffs + $4,
+                    landings = landings + $5,
+                    dcs_lifetime_sorties = dcs_lifetime_sorties + $2,
+                    dcs_lifetime_flight_hours = dcs_lifetime_flight_hours + $3,
+                    dcs_lifetime_takeoffs = dcs_lifetime_takeoffs + $4,
+                    dcs_lifetime_landings = dcs_lifetime_landings + $5,
+                    updated_at = NOW()
+                WHERE discord_id = $1
+                RETURNING *
+                """,
+                str(discord_id), sorties, hours, takeoffs, landings,
+            )
+            return pilot
+
+
+async def reject_sortie_report(report_id: int):
+    """Used when a report's discord_id no longer maps to an active pilot record."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE dcs_sortie_reports SET status = 'REJECTED', processed_at = NOW() "
+            "WHERE id = $1 AND status = 'PENDING'",
+            report_id,
         )

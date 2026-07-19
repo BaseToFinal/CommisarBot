@@ -330,10 +330,26 @@ async def build_dossier_embeds(record, member: discord.Member) -> list:
         value=f'{record["kills_air"]} / {record["kills_ground"]}',
         inline=True,
     )
-
+    embed.add_field(name="Takeoffs / Landings", value=f'{record["takeoffs"]} / {record["landings"]}', inline=True)
     embed.add_field(name="Fatigue Level", value=f'{record["fatigue_score"]:.0f} / 100', inline=True)
     embed.add_field(name="Cheks Balance", value=f'{record["cheks"]} ₽', inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    # Lifetime DCS-tracked totals span every life this discord_id has ever
+    # enlisted under — unlike the current-tour fields above, KIA and
+    # re-enlistment never reset these. Only shown once the pilot has any
+    # auto-tracked flying at all, so pilots who've never set up the EFB
+    # sortie tracker don't see an all-zero field cluttering their profile.
+    if record["dcs_lifetime_sorties"] > 0:
+        embed.add_field(
+            name="Lifetime Flight Record (all lives)",
+            value=(
+                f'{record["dcs_lifetime_sorties"]} sorties, '
+                f'{record["dcs_lifetime_flight_hours"]:.1f}h, '
+                f'{record["dcs_lifetime_takeoffs"]} T/O, '
+                f'{record["dcs_lifetime_landings"]} landings'
+            ),
+            inline=False,
+        )
 
     medals = json.loads(record["earned_medals"] or "[]")
     embed.add_field(
