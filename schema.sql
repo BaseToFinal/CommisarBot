@@ -142,7 +142,18 @@ CREATE TABLE IF NOT EXISTS kill_claims (
     status         VARCHAR NOT NULL DEFAULT 'PENDING',  -- PENDING, APPROVED_AIR, APPROVED_GROUND, DENIED
     reviewed_by    VARCHAR,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    reviewed_at    TIMESTAMPTZ
+    reviewed_at    TIMESTAMPTZ,
+
+    -- Required kill-claim details, collected via a modal the poster fills
+    -- in after posting their screenshot. A claim only gets routed to
+    -- ADMIN_APPROVAL_CHANNEL_ID (review_message_id gets set) once these
+    -- are filled in — enemy_aircraft_type IS NULL is how the code tells
+    -- "awaiting pilot details" apart from "awaiting Commissar review",
+    -- both of which are otherwise just status='PENDING'.
+    prompt_message_id  VARCHAR,          -- the "Enter Kill Details" button message
+    enemy_aircraft_type VARCHAR,
+    location            VARCHAR,
+    weapon_used          VARCHAR
 );
 
 CREATE INDEX IF NOT EXISTS idx_kill_claims_status ON kill_claims(status) WHERE status = 'PENDING';
@@ -219,6 +230,13 @@ ALTER TABLE pilot_records ADD COLUMN IF NOT EXISTS dcs_lifetime_landings INTEGER
 -- pilot had at time of death are archived here same as everything else.
 ALTER TABLE fallen_heroes ADD COLUMN IF NOT EXISTS takeoffs INTEGER;
 ALTER TABLE fallen_heroes ADD COLUMN IF NOT EXISTS landings INTEGER;
+
+-- Required kill-claim detail fields, added after kill_claims already
+-- existed in earlier deployments.
+ALTER TABLE kill_claims ADD COLUMN IF NOT EXISTS prompt_message_id VARCHAR;
+ALTER TABLE kill_claims ADD COLUMN IF NOT EXISTS enemy_aircraft_type VARCHAR;
+ALTER TABLE kill_claims ADD COLUMN IF NOT EXISTS location VARCHAR;
+ALTER TABLE kill_claims ADD COLUMN IF NOT EXISTS weapon_used VARCHAR;
 
 -- Defensive: covers the case where daily_orders_state was already created
 -- by an earlier deploy before conditions_text was added to its definition.

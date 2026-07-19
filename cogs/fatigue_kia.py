@@ -23,10 +23,20 @@ class FatigueKIA(commands.Cog):
 
     # ------------------------------------------------------------------
     # /mark_kia — admin-only permadeath
+    #
+    # DISABLED as of [this deploy]. Service profiles are meant to persist
+    # indefinitely during normal squadron operations now — a pilot's
+    # sorties/flight hours/kills should never reset just because they died
+    # in DCS. This command (and everything downstream of it — the
+    # fallen_heroes archive, the create_pilot reset-on-KIA-re-enlistment
+    # logic in db.py) is fully intact, just not registered as a slash
+    # command, so permadeath can be turned back on for the scripted
+    # campaign later with a one-line change: uncomment the decorator
+    # immediately below.
     # ------------------------------------------------------------------
 
-    @app_commands.command(name="mark_kia", description="[Admin] Mark a pilot KIA/MIA. Permanent.")
-    @app_commands.describe(user="The pilot to mark KIA", details="Details of the crash / loss")
+    # @app_commands.command(name="mark_kia", description="[Admin] Mark a pilot KIA/MIA. Permanent.")
+    # @app_commands.describe(user="The pilot to mark KIA", details="Details of the crash / loss")
     async def mark_kia(self, interaction: discord.Interaction, user: discord.Member, details: str):
         if not has_commissar_perms(interaction.user):
             await interaction.response.send_message(

@@ -521,6 +521,37 @@ async def set_kill_claim_review_message(claim_id: int, review_message_id: str):
         )
 
 
+async def set_kill_claim_prompt_message(claim_id: int, prompt_message_id: str):
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE kill_claims SET prompt_message_id = $2 WHERE id = $1",
+            claim_id, str(prompt_message_id),
+        )
+
+
+async def set_kill_claim_details(
+    claim_id: int, enemy_aircraft_type: str, location: str, weapon_used: str
+) -> Optional[asyncpg.Record]:
+    """
+    Records the pilot-submitted kill details. Guarded on enemy_aircraft_type
+    IS NULL so a claim's details can only ever be set once — the modal
+    can't be resubmitted after the fact to quietly change what was
+    originally reported once a Commissar is looking at it.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            UPDATE kill_claims
+            SET enemy_aircraft_type = $2, location = $3, weapon_used = $4
+            WHERE id = $1 AND status = 'PENDING' AND enemy_aircraft_type IS NULL
+            RETURNING *
+            """,
+            claim_id, enemy_aircraft_type, location, weapon_used,
+        )
+
+
 async def get_kill_claim(claim_id: int) -> Optional[asyncpg.Record]:
     pool = get_pool()
     async with pool.acquire() as conn:
